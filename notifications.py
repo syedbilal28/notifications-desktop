@@ -1,15 +1,16 @@
-import requests
 import json
-import time
-import tkinter as tk
-from tkinter import *
-import webbrowser
-# from win10toast import ToastNotifier
-from win10toast import ToastNotifier
-from pystray import MenuItem as item
-import pystray
-from PIL import Image
+import multiprocessing
+import sys
 import threading
+import time
+import webbrowser
+
+import requests
+from infi.systray import SysTrayIcon
+from PIL import Image
+from win10toast import ToastNotifier
+
+
 class Notification:
     def __init__(self,Type,link,title,description,icon):
         self.type=Type
@@ -19,43 +20,64 @@ class Notification:
         self.icon=icon
     def __str__(self):
         return self.title
-def tray(icon,item):
-    # print("Clicked")
-    pass
-def quit_window(icon, item):
-    icon.stop()
-    window.destroy()
 
-def show_window(icon, item):
-    icon.stop()
-    window.after(0,window.deiconify)
-state = False
+class KThread(threading.Thread):
+  """A subclass of threading.Thread, with a kill()
+method."""
+  def __init__(self, *args, **keywords):
+    threading.Thread.__init__(self, *args, **keywords)
+    self.killed = False
 
-def on_clicked(icon, item):
-    global state
-    state = not item.checked
+  def start(self):
+    """Start the thread."""
+    self.__run_backup = self.run
+    self.run = self.__run      # Force the Thread to
+# install our trace.
+    threading.Thread.start(self)
 
-def icon_action():
-    image = Image.open("inprovo-favicon.ico")
-    # menu = (item("name",tray),item("name",tray))
-    menu = (item('Quit', quit_window), item('Show', show_window))
-    # menu = (item('Quit', quit_window), item('Show', show_window))
-    icon = pystray.Icon("name", image, "title", menu=menu(
-    item(
-        'Checkable',
-        on_clicked,
-        checked=lambda item: state))).run()
-    
-# icon.run()
-from infi.systray import SysTrayIcon
+  def __run(self):
+    """Hacked run function, which installs the
+trace."""
+    sys.settrace(self.globaltrace)
+    self.__run_backup()
+    self.run = self.__run_backup
 
+  def globaltrace(self, frame, why, arg):
+    if why == 'call':
+      return self.localtrace
+    else:
+      return None
+
+  def localtrace(self, frame, why, arg):
+    if self.killed:
+      if why == 'line':
+        raise SystemExit()
+    return self.localtrace
+
+  def kill(self):
+    self.killed = True
+
+stop_threads=False
 def say_hello(systray):
     global icon_url
     webbrowser.open_new(icon_url)
+    print("Stop icon")
+    global icon_active
+    icon_active=False
+    systray.shutdown()
+    
+    # icon_thread.kill()
+    # icon_thread.exit()
+    # stop_threads= True
+    # icon_thread.join()
+    
 def infisystray():
     menu_options = (("Say Hello", None, say_hello),)
     systray = SysTrayIcon("inprovo-favicon.ico", "Example tray icon", menu_options)
     systray.start()
+    
+    
+
 def GetData():
     res=requests.get("https://app.inprovo.nl/api/v1/notifications")
     res=res.json()
@@ -70,8 +92,12 @@ def action():
     global url
     webbrowser.open_new(url)
     print("Done")    
+
+
+
  
 noti = ToastNotifier()
+global icon_active
 icon_active=False
 while True:
     starttime=time.time()
@@ -82,20 +108,27 @@ while True:
     if len(notifications) >0:
         for notification in notifications:
             print(notification.title)
-            if notification.type=="email" and icon_active==False:
+            print(icon_active)
+            
+            if notification.type=="email" and icon_active ==False:
+                print("activating icon")
                 icon_url= notification.link
-                icon_thread = threading.Thread(target=infisystray,name="icon_thread",args=())
+                icon_thread = threading.Thread(target=infisystray,name="icon_thread",args=(),daemon=True)
                 icon_thread.start()
+                # infisystray()
+                # print(icon_thread.pid)
+                
+                
                 icon_active=True
                 
                 
                 # time.sleep(5)            
-            else:
-                pass
+            elif notification.type!="email":
+                # pass
                 url=notification.link
                 notify(notification.title,notification.description,notification.link)
-                x=threading.Thread(target=notify,args=(notification.title,notification.description,notification.link,))
-                threads.append(x)
+                # x=threading.Thread(target=notify,args=(notification.title,notification.description,notification.link,))
+                # threads.append(x)
                 time.sleep(10)
     #Timer code
     time.sleep(5.0 - ((time.time() - starttime) % 5.0))
