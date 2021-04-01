@@ -1,0 +1,4 @@
+pystray
+requests
+win10toast
+pillow
